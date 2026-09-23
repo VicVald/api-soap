@@ -2,20 +2,21 @@
 Módulo de Integração com a API REST do ViaCEP.
 
 Fornece funções utilitárias para sanitização, validação de formato
-e realização de requisições HTTP à API pública do ViaCEP.
+e realização de requisições HTTP à API pública do ViaCEP com tratamento
+de erros resiliente e controle de timeouts.
 """
 
 import re
 from typing import Any, Dict, List, Optional
 import httpx
 
-# URL Base para comunicação com os endpoints da API ViaCEP
-VIACEP_BASE_URL: str = "https://viacep.com.br/ws"
+from src.core.config import HTTP_TIMEOUT_SECONDS, VIACEP_BASE_URL
+from src.core.security import sanitize_input
 
 
 def limpar_cep(cep: str) -> str:
     """
-    Remove caracteres não numéricos de uma string de CEP.
+    Remove caracteres não numéricos de uma string de CEP e sanitiza a entrada.
 
     Args:
         cep (str): String do CEP com ou sem formatação (ex: '01001-000' ou '01.001-000').
@@ -29,8 +30,9 @@ def limpar_cep(cep: str) -> str:
     """
     if not cep:
         return ""
+    sanitized = sanitize_input(str(cep))
     # Substitui qualquer caractere que NÃO seja um dígito (0-9) por vazio
-    return re.sub(r"\D", "", cep)
+    return re.sub(r"\D", "", sanitized)
 
 
 def validar_formato_cep(cep: str) -> bool:
@@ -63,28 +65,37 @@ def formatar_cep(cep: str) -> str:
     return cep
 
 
-def consultar_viacep(cep: str) -> Optional[Dict[str, Any]]:
+def consultar_viacep(cep: str, client: Optional[httpx.Client] = None) -> Optional[Dict[str, Any]]:
     """
     Realiza uma requisição HTTP à API do ViaCEP para obter os dados de um CEP específico.
 
     Args:
         cep (str): Código de Endereçamento Postal a ser pesquisado.
+        client (Optional[httpx.Client]): Cliente HTTP opcional para injeção de dependência/testes.
 
     Returns:
         Optional[Dict[str, Any]]: Dicionário contendo os dados do endereço se encontrado,
                                   ou None caso ocorra erro ou o CEP seja inexistente.
     """
     cep_limpo = limpar_cep(cep)
-    
+
     # Valida antecipadamente a quantidade de dígitos para evitar requisições desnecessárias
     if not validar_formato_cep(cep_limpo):
         return None
 
     url = f"{VIACEP_BASE_URL}/{cep_limpo}/json/"
     try:
-        # Define um timeout máximo de 10 segundos para a requisição externa
-        with httpx.Client(timeout=10.0) as client:
-            response = client.get(url)
+        if client is not None:
+            response = client.get(url, timeout=HTTP_TIMEOUT_SECONDS)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("erro") is True or data.get("erro") == "true":
+                    return None
+                return data
+            return None
+
+        with httpx.Client(timeout=HTTP_TIMEOUT_SECONDS) as default_client:
+            response = default_client.get(url)
             if response.status_code == 200:
                 data = response.json()
                 # A API do ViaCEP retorna {"erro": "true"} quando o CEP não é localizado
@@ -92,13 +103,14 @@ def consultar_viacep(cep: str) -> Optional[Dict[str, Any]]:
                     return None
                 return data
     except Exception as e:
-        # Registra a exceção no console caso haja falha de conexão ou rede
-        print(f"[-] Erro de conexão ao consultar ViaCEP: {e}")
-        
+        print(f"[-] Erro de conexão ao consultar ViaCEP ({url}): {e}")
+
     return None
 
 
-def buscar_viacep_por_logradouro(uf: str, cidade: str, logradouro: str) -> List[Dict[str, Any]]:
+def buscar_viacep_por_logradouro(
+    uf: str, cidade: str, logradouro: str, client: Optional[httpx.Client] = None
+) -> List[Dict[str, Any]]:
     """
     Pesquisa no ViaCEP a lista de endereços que correspondem aos critérios de Estado, Cidade e Logradouro.
 
@@ -106,6 +118,7 @@ def buscar_viacep_por_logradouro(uf: str, cidade: str, logradouro: str) -> List[
         uf (str): Sigla da Unidade Federativa com 2 caracteres (ex: 'SP').
         cidade (str): Nome da cidade (ex: 'São Paulo').
         logradouro (str): Nome ou trecho da rua (mínimo de 3 caracteres).
+        client (Optional[httpx.Client]): Cliente HTTP opcional para injeção de dependência/testes.
 
     Returns:
         List[Dict[str, Any]]: Lista de dicionários com os endereços localizados.
@@ -113,24 +126,32 @@ def buscar_viacep_por_logradouro(uf: str, cidade: str, logradouro: str) -> List[
     if not uf or not cidade or not logradouro:
         return []
 
-    # Sanitização e remoção de espaços em branco nas bordas
-    uf_clean = uf.strip().upper()
-    cidade_clean = cidade.strip()
-    logradouro_clean = logradouro.strip()
+    # Sanitização e remoção de caracteres maliciosos / espaços em branco
+    uf_clean = sanitize_input(uf).upper()
+    cidade_clean = sanitize_input(cidade)
+    logradouro_clean = sanitize_input(logradouro)
 
     # Validação dos parâmetros mínimos exigidos pelo ViaCEP
-    if len(uf_clean) != 2 or len(logradouro_clean) < 3:
+    if len(uf_clean) != 2 or len(logradouro_clean) < 3 or len(cidade_clean) < 3:
         return []
 
     url = f"{VIACEP_BASE_URL}/{uf_clean}/{cidade_clean}/{logradouro_clean}/json/"
     try:
-        with httpx.Client(timeout=10.0) as client:
-            response = client.get(url)
+        if client is not None:
+            response = client.get(url, timeout=HTTP_TIMEOUT_SECONDS)
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, list):
+                    return data
+            return []
+
+        with httpx.Client(timeout=HTTP_TIMEOUT_SECONDS) as default_client:
+            response = default_client.get(url)
             if response.status_code == 200:
                 data = response.json()
                 if isinstance(data, list):
                     return data
     except Exception as e:
-        print(f"[-] Erro de conexão ao buscar logradouro no ViaCEP: {e}")
+        print(f"[-] Erro de conexão ao buscar logradouro no ViaCEP ({url}): {e}")
 
     return []

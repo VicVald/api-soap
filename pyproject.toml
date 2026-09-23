@@ -1,7 +1,7 @@
 [project]
 name = "api-soap"
-version = "0.1.0"
-description = "API Servidor SOAP em Python 3.11 para Consulta de CEP integrada ao ViaCEP"
+version = "2.0.0"
+description = "API Servidor SOAP 1.1 e REST em Python 3.11 para Consulta de CEP integrada ao ViaCEP com Segurança, OpenAPI e Testes Automatizados"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [
@@ -12,4 +12,27 @@ dependencies = [
     "spyne>=2.14.0",
     "uvicorn>=0.30.0",
     "zeep>=4.2.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-mock>=3.15.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=src --cov-report=term-missing --cov-report=html:coverage_html"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::pydantic.PydanticDeprecatedSince20",
+    "ignore::starlette.exceptions.StarletteDeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/__init__.py",
 ]

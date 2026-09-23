@@ -1,15 +1,22 @@
 """
-Módulo de definição do Serviço SOAP de CEP (Spyne Service).
+Módulo de Definição do Serviço SOAP de CEP (Spyne Service).
 
-Este módulo define a estrutura da API SOAP 1.1 para consulta, validação
-e busca de CEPs utilizando a biblioteca Spyne sob o protocolo WSDL.
-Executa de forma 100% nativa em Python 3.11+.
+Define o contrato WSDL, modelos de dados e operações RPC da API SOAP 1.1:
+- consultar_cep
+- validar_cep
+- buscar_por_logradouro
+- obter_status_servico
+
+Compatível com Spyne e WSGI/ASGI via a2wsgi no Python 3.11.
 """
 
+from datetime import datetime
 from spyne import Application, Array, Boolean, ComplexModel, ServiceBase, Unicode, rpc
 from spyne.protocol.soap import Soap11
 from spyne.server.wsgi import WsgiApplication
 
+from src.core.config import APP_NAME, APP_VERSION
+from src.core.security import sanitize_input
 from src.services.viacep_client import (
     buscar_viacep_por_logradouro,
     consultar_viacep,
@@ -23,23 +30,10 @@ class EnderecoResponse(ComplexModel):
     Modelo de dados retornado nas consultas de CEP.
 
     Representa um endereço completo no padrão do protocolo SOAP / WSDL.
-    
-    Attributes:
-        cep (Unicode): Código de Endereçamento Postal formatado (ex: '01001-000').
-        logradouro (Unicode): Nome da rua, avenida ou praça.
-        complemento (Unicode): Informações adicionais de complemento do endereço.
-        bairro (Unicode): Nome do bairro.
-        localidade (Unicode): Nome da cidade/município.
-        uf (Unicode): Sigla da Unidade Federativa / Estado (ex: 'SP').
-        ibge (Unicode): Código IBGE do município.
-        gia (Unicode): Código GIA da cidade.
-        ddd (Unicode): Código DDD do telefone da região.
-        siafi (Unicode): Código SIAFI do município.
-        sucesso (Boolean): Indica se a consulta obteve sucesso.
-        mensagem (Unicode): Mensagem explicativa ou de status da operação.
     """
+
     __namespace__ = "api.soap.cep"
-    
+
     cep = Unicode
     logradouro = Unicode
     complemento = Unicode
@@ -57,17 +51,27 @@ class EnderecoResponse(ComplexModel):
 class ResultadoValidacao(ComplexModel):
     """
     Modelo de dados retornado na validação de formato de CEP.
-
-    Attributes:
-        valido (Boolean): True se o CEP contiver 8 dígitos numéricos válidos.
-        mensagem (Unicode): Descrição legível sobre o resultado da validação.
-        cep_formatado (Unicode): CEP formatado com máscara (ex: '01001-000') se válido.
     """
+
     __namespace__ = "api.soap.cep"
-    
+
     valido = Boolean
     mensagem = Unicode
     cep_formatado = Unicode
+
+
+class StatusServicoResponse(ComplexModel):
+    """
+    Modelo de status e integridade do serviço SOAP.
+    """
+
+    __namespace__ = "api.soap.cep"
+
+    servico = Unicode
+    versao = Unicode
+    status = Unicode
+    provedor = Unicode
+    timestamp = Unicode
 
 
 class CepService(ServiceBase):
@@ -82,29 +86,26 @@ class CepService(ServiceBase):
 
         Args:
             ctx: Contexto da requisição RPC do Spyne.
-            cep (str): CEP a ser consultado (pode conter pontuação ou apenas números).
+            cep (str): CEP a ser consultado (com ou sem máscara).
 
         Returns:
             EnderecoResponse: Objeto contendo os dados do endereço localizado ou mensagem de erro.
         """
-        # Valida se o CEP foi informado na requisição SOAP
-        if not cep or not cep.strip():
+        if not cep or not str(cep).strip():
             return EnderecoResponse(
                 sucesso=False,
-                mensagem="O parâmetro CEP é de preenchimento obrigatório."
+                mensagem="O parâmetro CEP é de preenchimento obrigatório.",
             )
 
-        # Realiza a requisição ao serviço do ViaCEP
-        dados = consultar_viacep(cep)
-        
-        # Caso o CEP não seja localizado ou seja inválido
+        cep_sanitizado = sanitize_input(str(cep))
+        dados = consultar_viacep(cep_sanitizado)
+
         if not dados:
             return EnderecoResponse(
                 sucesso=False,
-                mensagem=f"O CEP '{cep}' não foi localizado ou possui formato inválido."
+                mensagem=f"O CEP '{cep_sanitizado}' não foi localizado ou possui formato inválido.",
             )
 
-        # Retorna a resposta com os dados mapeados para o tipo de retorno SOAP
         return EnderecoResponse(
             cep=dados.get("cep", ""),
             logradouro=dados.get("logradouro", ""),
@@ -117,7 +118,7 @@ class CepService(ServiceBase):
             ddd=dados.get("ddd", ""),
             siafi=dados.get("siafi", ""),
             sucesso=True,
-            mensagem="CEP encontrado com sucesso."
+            mensagem="CEP encontrado com sucesso.",
         )
 
     @rpc(Unicode, _returns=ResultadoValidacao)
@@ -132,27 +133,27 @@ class CepService(ServiceBase):
         Returns:
             ResultadoValidacao: Objeto indicando se o formato é válido e sua representação formatada.
         """
-        if not cep or not cep.strip():
+        if not cep or not str(cep).strip():
             return ResultadoValidacao(
                 valido=False,
                 mensagem="O parâmetro CEP não foi informado.",
-                cep_formatado=""
+                cep_formatado="",
             )
 
-        # Executa a checagem de formato numérico de 8 dígitos
-        valido = validar_formato_cep(cep)
-        
+        cep_sanitizado = sanitize_input(str(cep))
+        valido = validar_formato_cep(cep_sanitizado)
+
         if valido:
             return ResultadoValidacao(
                 valido=True,
-                mensagem="CEP possui formato válido.",
-                cep_formatado=formatar_cep(cep)
+                mensagem="CEP possui formato válido de 8 dígitos.",
+                cep_formatado=formatar_cep(cep_sanitizado),
             )
         else:
             return ResultadoValidacao(
                 valido=False,
                 mensagem="CEP inválido. O CEP deve conter exatamente 8 dígitos numéricos.",
-                cep_formatado=""
+                cep_formatado="",
             )
 
     @rpc(Unicode, Unicode, Unicode, _returns=Array(EnderecoResponse))
@@ -172,11 +173,15 @@ class CepService(ServiceBase):
         if not uf or not cidade or not logradouro:
             return []
 
-        # Consulta os dados correspondentes no ViaCEP
-        resultados_viacep = buscar_viacep_por_logradouro(uf, cidade, logradouro)
+        uf_sanitizado = sanitize_input(str(uf))
+        cidade_sanitizada = sanitize_input(str(cidade))
+        logradouro_sanitizado = sanitize_input(str(logradouro))
+
+        resultados_viacep = buscar_viacep_por_logradouro(
+            uf_sanitizado, cidade_sanitizada, logradouro_sanitizado
+        )
         lista_enderecos = []
 
-        # Itera sobre os resultados convertendo cada dict retornado no modelo EnderecoResponse
         for item in resultados_viacep:
             lista_enderecos.append(
                 EnderecoResponse(
@@ -191,11 +196,24 @@ class CepService(ServiceBase):
                     ddd=item.get("ddd", ""),
                     siafi=item.get("siafi", ""),
                     sucesso=True,
-                    mensagem="Endereço localizado."
+                    mensagem="Endereço localizado com sucesso.",
                 )
             )
 
         return lista_enderecos
+
+    @rpc(_returns=StatusServicoResponse)
+    def obter_status_servico(ctx) -> StatusServicoResponse:
+        """
+        Retorna as informações de integridade operacional do serviço SOAP.
+        """
+        return StatusServicoResponse(
+            servico=APP_NAME,
+            versao=APP_VERSION,
+            status="OPERACIONAL",
+            provedor="ViaCEP Integration Engine",
+            timestamp=datetime.now().isoformat(),
+        )
 
 
 # Definição da Aplicação Spyne SOAP 1.1 com gerador WSDL
@@ -206,5 +224,5 @@ app_spyne = Application(
     out_protocol=Soap11(),
 )
 
-# Empacotamento WSGI para ser montado em servidores web Python (como FastAPI ou Uvicorn)
+# Empacotamento WSGI para ser montado em servidores ASGI via a2wsgi
 wsgi_soap_app = WsgiApplication(app_spyne)
