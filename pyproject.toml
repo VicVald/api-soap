@@ -1,7 +1,7 @@
 [project]
 name = "api-soap"
 version = "2.0.0"
-description = "API Servidor SOAP 1.1 e REST em Python 3.11 para Consulta de CEP integrada ao ViaCEP com Segurança, OpenAPI e Testes Automatizados"
+description = "API Servidor SOAP 1.1 em Python 3.11 para Consulta de CEP integrada ao ViaCEP com WSDL, Interface Gráfica Mínima e Testes Automatizados"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [

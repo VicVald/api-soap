@@ -2,6 +2,7 @@
 Testes de Contrato da Interface WSDL e Protocolo SOAP 1.1 (test_wsdl_contract.py).
 """
 
+from unittest.mock import patch
 from xml.etree import ElementTree as ET
 import pytest
 from fastapi.testclient import TestClient
@@ -41,7 +42,7 @@ class TestWsdlContract:
         assert "ResultadoValidacao" in wsdl_content
         assert "StatusServicoResponse" in wsdl_content
 
-    def test_soap_post_envelope_consultar_cep(self, client: TestClient):
+    def test_soap_post_envelope_validar_cep(self, client: TestClient):
         envelope = (
             '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:spy="api.soap.cep">\n'
             "   <soapenv:Header/>\n"
@@ -64,6 +65,59 @@ class TestWsdlContract:
         assert "validar_cepResponse" in response.text
         assert "valido>true" in response.text
         assert "01001-000" in response.text
+
+    @patch("src.services.soap_service.consultar_viacep")
+    def test_soap_post_envelope_consultar_cep(self, mock_consultar, client: TestClient, sample_viacep_response):
+        mock_consultar.return_value = sample_viacep_response
+        envelope = (
+            '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:spy="api.soap.cep">\n'
+            "   <soapenv:Header/>\n"
+            "   <soapenv:Body>\n"
+            "      <spy:consultar_cep>\n"
+            "         <spy:cep>01001-000</spy:cep>\n"
+            "      </spy:consultar_cep>\n"
+            "   </soapenv:Body>\n"
+            "</soapenv:Envelope>"
+        )
+        response = client.post(
+            "/soap",
+            content=envelope,
+            headers={
+                "Content-Type": "text/xml; charset=utf-8",
+                "SOAPAction": "consultar_cep",
+            },
+        )
+        assert response.status_code == 200
+        assert "consultar_cepResponse" in response.text
+        assert "Praça da Sé" in response.text
+        assert "sucesso>true" in response.text
+
+    @patch("src.services.soap_service.buscar_viacep_por_logradouro")
+    def test_soap_post_envelope_buscar_logradouro(self, mock_buscar, client: TestClient, sample_viacep_response):
+        mock_buscar.return_value = [sample_viacep_response]
+        envelope = (
+            '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:spy="api.soap.cep">\n'
+            "   <soapenv:Header/>\n"
+            "   <soapenv:Body>\n"
+            "      <spy:buscar_por_logradouro>\n"
+            "         <spy:uf>SP</spy:uf>\n"
+            "         <spy:cidade>São Paulo</spy:cidade>\n"
+            "         <spy:logradouro>Praça da Sé</spy:logradouro>\n"
+            "      </spy:buscar_por_logradouro>\n"
+            "   </soapenv:Body>\n"
+            "</soapenv:Envelope>"
+        )
+        response = client.post(
+            "/soap",
+            content=envelope,
+            headers={
+                "Content-Type": "text/xml; charset=utf-8",
+                "SOAPAction": "buscar_por_logradouro",
+            },
+        )
+        assert response.status_code == 200
+        assert "buscar_por_logradouroResponse" in response.text
+        assert "Praça da Sé" in response.text
 
     def test_soap_post_envelope_obter_status(self, client: TestClient):
         envelope = (

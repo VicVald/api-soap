@@ -1,12 +1,12 @@
-# 🏛️ Servidor Híbrido SOAP 1.1 & REST de Consulta de CEP
+# ⚡ Servidor SOAP 1.1 de Consulta de CEP
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![SOAP](https://img.shields.io/badge/Protocol-SOAP%201.1%20%2F%20WSDL-orange)]()
-[![Tests](https://img.shields.io/badge/Tests-77%20Passed%20(99%25%20Coverage)-brightgreen)]()
+[![Tests](https://img.shields.io/badge/Tests-54%20Passed%20(99%25%20Coverage)-brightgreen)]()
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)]()
 
-Aplicação servidora desenvolvida em **Python 3.11** para atender aos requisitos da disciplina de Arquitetura e Integração de APIs. A solução implementa um ecossistema completo para consulta e validação de Códigos de Endereçamento Postal (CEP) do Brasil integrado ao provedor **ViaCEP**, disponibilizando tanto o protocolo **SOAP 1.1 com contrato WSDL dinâmico** quanto uma **API REST com documentação interativa OpenAPI / Swagger**.
+Aplicação servidora desenvolvida em **Python 3.11** para atendimento dos requisitos de Arquitetura e Integração de APIs. A solução implementa um serviço nativo **SOAP 1.1** com geração dinâmica de contrato **WSDL** e interface gráfica mínima para demonstração em tempo real, integrado ao provedor de dados públicos **ViaCEP**.
 
 ---
 
@@ -14,39 +14,36 @@ Aplicação servidora desenvolvida em **Python 3.11** para atender aos requisito
 
 ```mermaid
 flowchart TD
-    subgraph Clientes["Clientes & Consumidores"]
-        C1["Navegador Web (Web UI Dashboard)"]
-        C2["Cliente SOAP (Zeep / SoapUI / Postman)"]
-        C3["Cliente REST / HTTP (cURL / Swagger UI)"]
+    subgraph Clientes["Clientes & Consumidores SOAP"]
+        C1["Demonstrador Web UI (/)"]
+        C2["Cliente Python Zeep (tests.test_soap_client)"]
+        C3["Ferramentas SOAP (SoapUI / Postman)"]
     end
 
-    subgraph Servidor["Servidor de Aplicação (FastAPI / Uvicorn)"]
+    subgraph Servidor["Servidor de Aplicação (FastAPI + Spyne / a2wsgi)"]
         direction TB
         M1["Middleware de Cabeçalhos de Segurança (CSP, nosniff, DENY)"]
         M2["Middleware de Rate Limiting por IP (60 req/min)"]
-        SEC["Módulo de Autenticação (API Key / Bearer Token)"]
         
-        UI["Web UI Interativa (Dashboard /)"]
-        REST["Rotas RESTful (/api/v1/* com OpenAPI/Swagger)"]
+        UI["Interface Gráfica Mínima de Demonstração (/)"]
         SOAP["Serviço Spyne SOAP 1.1 (/soap e /soap?wsdl)"]
+        ENGINE["Motor de Integração & Validação de CEP"]
     end
 
     subgraph Integracao["Provedor Externo"]
         VIACEP["API Pública ViaCEP (HTTPS)"]
     end
 
-    C1 --> M1
-    C2 --> M1
-    C3 --> M1
+    C1 -->|"POST XML Envelope"| M1
+    C2 -->|"SOAP RPC / WSDL"| M1
+    C3 -->|"SOAP 1.1 Envelope"| M1
+    
     M1 --> M2
-    M2 --> SEC
-
-    SEC --> UI
-    SEC --> REST
-    SEC --> SOAP
-
-    REST --> VIACEP
-    SOAP --> VIACEP
+    M2 --> UI
+    M2 --> SOAP
+    
+    SOAP --> ENGINE
+    ENGINE --> VIACEP
 ```
 
 ---
@@ -58,171 +55,163 @@ api-soap/
 ├── .env.example                  # Modelo de variáveis de ambiente do projeto
 ├── pyproject.toml                # Metadados, dependências e configurações de testes
 ├── README.md                     # Documentação principal da aplicação
-├── GUIA_EVIDENCIAS_RELATORIO.md  # Guia passo a passo para captura de prints e evidências
 ├── src/                          # Código-fonte da aplicação
 │   ├── __init__.py
-│   ├── main.py                   # Ponto de entrada FastAPI, middlewares e inicialização Uvicorn
+│   ├── main.py                   # Ponto de entrada FastAPI, montagem Spyne e inicialização Uvicorn
 │   ├── core/                     # Módulos centrais de infraestrutura
 │   │   ├── __init__.py
 │   │   ├── config.py             # Configurações globais e variáveis operacionais
-│   │   └── security.py           # Autenticação, Rate Limiting e cabeçalhos de proteção
-│   ├── api/                      # Camada REST e documentação OpenAPI
+│   │   └── security.py           # Rate Limiting por IP, sanitização e cabeçalhos de segurança
+│   ├── services/                 # Regras de negócio e serviços SOAP
 │   │   ├── __init__.py
-│   │   └── rest_routes.py        # Endpoints RESTful, esquemas Pydantic e ponte SOAP Raw
-│   ├── services/                 # Regras de negócio e integrações
-│   │   ├── __init__.py
-│   │   ├── soap_service.py       # Definição RPC do Spyne, modelos e gerador WSDL
+│   │   ├── soap_service.py       # Definição RPC do Spyne, modelos ComplexType e WSDL
 │   │   └── viacep_client.py      # Cliente HTTP de comunicação com o ViaCEP
 │   └── views/                    # Camada de apresentação
 │       ├── __init__.py
-│       └── web_ui.py             # Interface Web interativa (Dashboard HTML/CSS/JS)
-└── tests/                        # Suíte abrangente de testes automatizados
+│       └── web_ui.py             # Interface Gráfica mínima de demonstração SOAP (HTML/CSS/JS)
+└── tests/                        # Suíte de testes automatizados
     ├── __init__.py
-    ├── conftest.py               # Fixtures e configurações do Pytest
+    ├── conftest.py               # Fixtures globais do Pytest
     ├── test_soap_client.py       # Execução direta de testes do cliente SOAP Zeep
     ├── unit/                     # Testes unitários (100% isolados com Mocks)
-    │   ├── test_security.py      # Testes de autenticação, rate limiter e sanitização
+    │   ├── test_security.py      # Testes de rate limiter e sanitização de inputs
     │   └── test_viacep_client.py # Testes de validação, formatação e requisições HTTP
     ├── integration/              # Testes de integração
-    │   ├── test_rest_api.py      # Testes de rotas REST, códigos HTTP e middlewares
-    │   └── test_soap_service.py  # Testes dos métodos RPC do Spyne
-    ├── contract/                 # Testes de contrato
-    │   └── test_wsdl_contract.py # Validação de schema WSDL, operações e tipos SOAP
+    │   └── test_soap_service.py  # Testes dos métodos RPC, endpoints e middlewares
+    ├── contract/                 # Testes de contrato WSDL
+    │   └── test_wsdl_contract.py # Validação de schema XML, operações e envelopes SOAP
     └── e2e/                      # Testes End-to-End
         └── test_soap_client.py   # Testes automatizados com cliente Zeep
 ```
 
 ---
 
-## 🛠️ Tecnologias e Bibliotecas Utilizadas
+## 🛠️ Tecnologias Utilizadas
 
-- **Linguagem**: Python 3.11 com gerenciador de ambiente e pacotes **`uv`**
+- **Linguagem**: Python 3.11 com gerenciador de ambiente e dependências **`uv`**
 - **Framework SOAP**: **Spyne 2.14** (RPC nativo, modelos XML tipados e contrato WSDL 1.1)
-- **Framework Web/REST**: **FastAPI 0.115** & **Uvicorn 0.30** (ASGI assíncrono de alta performance)
-- **Adaptador WSGI/ASGI**: **`a2wsgi`** para acoplamento do Spyne SOAP dentro do FastAPI
-- **Cliente HTTP**: **`httpx`** para consumo da API do ViaCEP
-- **Cliente SOAP**: **`zeep`** para testes e consumo automatizado do WSDL
-- **Testes & Cobertura**: **`pytest`**, **`pytest-cov`**, **`pytest-mock`** com 99% de cobertura
+- **Engine Web & ASGI**: **FastAPI** + **a2wsgi** + **Uvicorn**
+- **Cliente SOAP**: **Zeep 4.2**
+- **Testes & Qualidade**: **Pytest 9.1**, **pytest-cov** (99% de cobertura) e **pytest-mock**
 
 ---
 
-## 🔒 Recursos de Segurança Implementados
+## 🚀 Como Executar o Projeto
 
-1. **Autenticação e Autorização por API Key**:
-   - Proteção de endpoints via cabeçalho HTTP `X-API-Key: soap-secret-key-2026` ou `Authorization: Bearer soap-secret-key-2026`.
-   - Bloqueio imediato com código `401 Unauthorized` para requisições sem credenciais válidas.
-2. **Controle de Taxa de Requisições (Rate Limiting)**:
-   - Limitação de taxa de 60 requisições por minuto por endereço IP utilizando janela deslizante.
-   - Resposta `429 Too Many Requests` com cabeçalhos `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` e `Retry-After`.
-3. **Cabeçalhos de Segurança HTTP (Security Headers)**:
-   - `X-Content-Type-Options: nosniff` (prevenção contra MIME Sniffing).
-   - `X-Frame-Options: DENY` (mitigação de Clickjacking).
-   - `X-XSS-Protection: 1; mode=block` (filtro XSS do navegador).
-   - `Referrer-Policy: strict-origin-when-cross-origin`.
-4. **Sanitização de Entradas e Proteção XXE**:
-   - Parser XML Spyne com validação `lxml` segura.
-   - Filtro de caracteres perigosos contra XML Injection e Cross-Site Scripting (XSS).
+### 1. Pré-requisitos e Instalação de Dependências
 
----
+Certifique-se de ter o `uv` instalado. Em seguida, sincronize o ambiente virtual:
 
-## 🚀 Instalação e Execução
-
-### 1. Pré-requisitos
-Certifique-se de ter o Python 3.11 e o gerenciador de pacotes `uv` instalados.
-
-### 2. Sincronizar Dependências
 ```bash
 uv sync
 ```
 
-### 3. Iniciar o Servidor
+### 2. Inicialização do Servidor SOAP
+
+Execute o servidor local na porta `8000`:
+
 ```bash
 uv run python -m src.main
 ```
 
-Após a inicialização, os serviços estarão acessíveis nas seguintes URLs:
-
-| Recurso | URL | Descrição |
-| :--- | :--- | :--- |
-| **Portal Web Interativo** | [http://localhost:8000/](http://localhost:8000/) | Interface gráfica completa para testes |
-| **Documentação Swagger UI** | [http://localhost:8000/docs](http://localhost:8000/docs) | Documentação interativa OpenAPI 3.0 |
-| **Documentação ReDoc** | [http://localhost:8000/redoc](http://localhost:8000/redoc) | Especificação visual alternativa OpenAPI |
-| **Contrato WSDL (SOAP)** | [http://localhost:8000/soap?wsdl](http://localhost:8000/soap?wsdl) | Definição XML WSDL do serviço SOAP |
-| **Endpoint SOAP 1.1 (POST)** | `http://localhost:8000/soap` | Endpoint para envio de envelopes SOAP |
-| **Health Check** | [http://localhost:8000/health](http://localhost:8000/health) | Verificação de integridade da aplicação |
+O servidor estará disponível nos seguintes endereços:
+- **Interface Gráfica de Demonstração**: [http://localhost:8000/](http://localhost:8000/)
+- **Endpoint SOAP 1.1**: `http://localhost:8000/soap`
+- **Contrato WSDL**: [http://localhost:8000/soap?wsdl](http://localhost:8000/soap?wsdl)
+- **Health Check**: [http://localhost:8000/health](http://localhost:8000/health)
 
 ---
 
-## 📑 Métodos Disponíveis nos Contratos
+## 🖥️ Interface Gráfica Mínima de Demonstração
 
-### Métodos do Contrato SOAP (WSDL)
-- `consultar_cep(cep: string) -> EnderecoResponse`: Consulta dados detalhados do CEP (Logradouro, Bairro, Cidade, UF, IBGE, DDD, SIAFI).
-- `validar_cep(cep: string) -> ResultadoValidacao`: Valida o formato numérico de 8 dígitos e devolve a máscara `00000-000`.
-- `buscar_por_logradouro(uf: string, cidade: string, logradouro: string) -> Array(EnderecoResponse)`: Pesquisa endereços por estado, cidade e rua.
-- `obter_status_servico() -> StatusServicoResponse`: Retorna integridade e status operacional do serviço SOAP.
+A aplicação disponibiliza na rota raiz `/` uma interface gráfica moderna e minimalista que interage diretamente com o endpoint SOAP via requisições HTTP POST com envelopes XML:
 
-### Endpoints da API REST (OpenAPI / Swagger)
-- `GET /api/v1/cep/{cep}`: Consulta endereço por CEP (requer API Key).
-- `GET /api/v1/cep/validar/{cep}`: Valida formato de CEP.
-- `GET /api/v1/cep/buscar/enderecos?uf=SP&cidade=São Paulo&logradouro=Sé`: Busca por logradouro (requer API Key).
-- `GET /api/v1/security/verify`: Demonstração de validação de autenticação (requer API Key).
-- `GET /api/v1/status`: Informações de status e recursos de segurança ativos.
-- `POST /api/v1/soap/raw`: Executor / ponte REST para envio de envelopes SOAP XML.
+1. **Consultar CEP (`consultar_cep`)**: Permite inserir um CEP ou selecionar exemplos rápidos (ex: `01001-000`, `90010-270`), executando a chamada RPC SOAP e exibindo os dados do endereço juntamente com o envelope XML de requisição e resposta.
+2. **Validar CEP (`validar_cep`)**: Valida o padrão numérico de 8 dígitos de um CEP via SOAP.
+3. **Buscar por Logradouro (`buscar_por_logradouro`)**: Pesquisa endereços por Estado (UF), Cidade e Rua via SOAP RPC Array response.
+4. **Testador Raw XML**: Permite carregar templates SOAP prontos ou escrever envelopes XML arbitrários e inspecionar a resposta bruta do servidor SOAP.
 
 ---
 
-## 🧪 Executando a Suíte de Testes Automatizados
+## 📜 Operações do Contrato WSDL (SOAP 1.1)
 
-Para rodar todos os 77 testes automatizados com relatório de cobertura em terminal e geração de HTML:
+O contrato WSDL gerado pelo Spyne expõe 4 operações RPC no namespace `api.soap.cep`:
+
+| Operação RPC | Parâmetros de Entrada | Tipo de Retorno | Descrição |
+| :--- | :--- | :--- | :--- |
+| `consultar_cep` | `cep` (string) | `EnderecoResponse` | Consulta endereço completo no ViaCEP por CEP |
+| `validar_cep` | `cep` (string) | `ResultadoValidacao` | Valida conformidade do formato de 8 dígitos do CEP |
+| `buscar_por_logradouro` | `uf` (string), `cidade` (string), `logradouro` (string) | `Array(EnderecoResponse)` | Retorna lista de endereços correspondentes aos filtros |
+| `obter_status_servico` | *Nenhum* | `StatusServicoResponse` | Retorna status de integridade e metadados operacionais |
+
+---
+
+## 📨 Exemplo de Envelope SOAP 1.1 (Requisição e Resposta)
+
+### Requisição HTTP POST para `/soap`
+
+```http
+POST /soap HTTP/1.1
+Host: localhost:8000
+Content-Type: text/xml; charset=utf-8
+SOAPAction: consultar_cep
+
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:spy="api.soap.cep">
+   <soapenv:Header/>
+   <soapenv:Body>
+      <spy:consultar_cep>
+         <spy:cep>01001-000</spy:cep>
+      </spy:consultar_cep>
+   </soapenv:Body>
+</soapenv:Envelope>
+```
+
+### Resposta SOAP 1.1 Retornada
+
+```xml
+<soap11env:Envelope xmlns:soap11env="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="api.soap.cep">
+   <soap11env:Body>
+      <tns:consultar_cepResponse>
+         <tns:consultar_cepResult>
+            <tns:cep>01001-000</tns:cep>
+            <tns:logradouro>Praça da Sé</tns:logradouro>
+            <tns:complemento>lado ímpar</tns:complemento>
+            <tns:bairro>Sé</tns:bairro>
+            <tns:localidade>São Paulo</tns:localidade>
+            <tns:uf>SP</tns:uf>
+            <tns:ibge>3550308</tns:ibge>
+            <tns:gia>1004</tns:gia>
+            <tns:ddd>11</tns:ddd>
+            <tns:siafi>7107</tns:siafi>
+            <tns:sucesso>true</tns:sucesso>
+            <tns:mensagem>CEP encontrado com sucesso.</tns:mensagem>
+         </tns:consultar_cepResult>
+      </tns:consultar_cepResponse>
+   </soap11env:Body>
+</soap11env:Envelope>
+```
+
+---
+
+## 🧪 Suíte de Testes Automatizados
+
+### Execução de Todos os Testes com Relatório de Cobertura
 
 ```bash
 uv run pytest
 ```
 
-Para abrir o relatório visual de cobertura em HTML gerado em `coverage_html/index.html`:
-```bash
-# No Linux:
-xdg-open coverage_html/index.html
-```
+### Execução dos Testes do Cliente Zeep (com o servidor rodando)
 
-Para executar o cliente de teste SOAP Zeep de ponta a ponta com o servidor ativo:
 ```bash
 uv run python -m tests.test_soap_client
 ```
 
 ---
 
-## 📬 Exemplos Práticos de Requisição
+## 🔒 Medidas de Segurança Implementadas
 
-### 1. Requisição SOAP Raw (cURL)
-```bash
-curl -X POST http://localhost:8000/soap \
-  -H "Content-Type: text/xml; charset=utf-8" \
-  -H "SOAPAction: consultar_cep" \
-  -d '<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:spy="api.soap.cep">
-   <soapenv:Header/>
-   <soapenv:Body>
-      <spy:consultar_cep>
-         <spy:cep>01001000</spy:cep>
-      </spy:consultar_cep>
-   </soapenv:Body>
-</soapenv:Envelope>'
-```
-
-### 2. Requisição REST com Autenticação (cURL)
-```bash
-curl -X GET "http://localhost:8000/api/v1/cep/01001000" \
-  -H "X-API-Key: soap-secret-key-2026"
-```
-
-### 3. Requisição REST Sem Autenticação (Retorno 401 Unauthorized para Evidência)
-```bash
-curl -i -X GET "http://localhost:8000/api/v1/cep/01001000"
-```
-
----
-
-## 📸 Guia para o Relatório Acadêmico
-
-Consulte o arquivo **[`GUIA_EVIDENCIAS_RELATORIO.md`](file:///home/victor/Documents/agents-portfolio/api-soap/GUIA_EVIDENCIAS_RELATORIO.md)** para o roteiro completo de capturas de tela exigidas no trabalho (Telas em Funcionamento, Segurança, Swagger/WSDL e Testes de Cobertura).
+1. **Rate Limiting por IP**: Limita o tráfego a 60 requisições por minuto por IP com headers informativos (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` e `Retry-After`).
+2. **Cabeçalhos de Segurança HTTP**: Proteção contra ataques web (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection: 1; mode=block`, `Referrer-Policy: strict-origin-when-cross-origin`).
+3. **Sanitização de Inputs**: Filtragem rigorosa de caracteres de injeção XML/XSS antes do processamento RPC.

@@ -1,32 +1,24 @@
 """
-Módulo de Segurança e Políticas de Proteção da API.
+Módulo de Segurança e Políticas de Proteção do Servidor SOAP.
 
 Implementa:
-1. Autenticação e Autorização via API Key (Header 'X-API-Key' e 'Authorization Bearer')
-2. Middleware de Rate Limiting por IP para prevenção de ataques DoS/Brute-force
-3. Middleware de Cabeçalhos de Segurança HTTP (HSTS, CSP, X-Frame-Options, X-Content-Type-Options)
-4. Sanitização e proteção contra injeções XML / XXE
+1. Middleware de Rate Limiting por IP para prevenção de DoS e abuso de chamadas RPC
+2. Middleware de Cabeçalhos de Segurança HTTP (HSTS, CSP, X-Frame-Options, X-Content-Type-Options)
+3. Sanitização de inputs para prevenção de injeções XML / XXE / XSS
 """
 
 import time
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
-from fastapi import Header, HTTPException, Request, Security, status
-from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, Response
 
 from src.core.config import (
-    DEFAULT_API_KEY,
     RATE_LIMIT_REQUESTS,
     RATE_LIMIT_WINDOW_SECONDS,
-    VALID_API_KEYS,
 )
-
-# Definições de Esquemas OpenAPI de Segurança para o Swagger UI
-api_key_header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False, description="Chave de API informada no header X-API-Key")
-http_bearer_scheme = HTTPBearer(auto_error=False, description="Token de autenticação Bearer (ex: Bearer soap-secret-key-2026)")
 
 
 class RateLimiter:
@@ -101,9 +93,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        # Ignora rotas estáticas ou de documentação para não bloquear navegação visual
+        # Ignora rotas estáticas ou raiz para não bloquear navegação visual
         path = request.url.path
-        if path in ("/", "/favicon.ico", "/docs", "/redoc", "/openapi.json"):
+        if path in ("/", "/favicon.ico"):
             return await call_next(request)
 
         # Identifica IP do cliente considerando proxies confiáveis
@@ -135,40 +127,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         response.headers["X-RateLimit-Remaining"] = str(remaining)
         response.headers["X-RateLimit-Reset"] = str(reset_time)
         return response
-
-
-def verify_api_key_value(key: Optional[str]) -> bool:
-    """Verifica se a chave fornecida corresponde a uma chave válida cadastrada."""
-    if not key:
-        return False
-    return key in VALID_API_KEYS
-
-
-def require_api_key(
-    x_api_key: Optional[str] = Security(api_key_header_scheme),
-    bearer_auth: Optional[HTTPAuthorizationCredentials] = Security(http_bearer_scheme),
-) -> str:
-    """
-    Dependência FastAPI que exige autenticação por X-API-Key ou Bearer Token.
-
-    Raises:
-        HTTPException: 401 Unauthorized se a chave/token for ausente ou inválida.
-
-    Returns:
-        str: A chave/token validado com sucesso.
-    """
-    token = x_api_key or (bearer_auth.credentials if bearer_auth else None)
-
-    if not token or not verify_api_key_value(token):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=(
-                "Acesso não autorizado. É necessário fornecer uma API Key válida "
-                "no cabeçalho 'X-API-Key' ou 'Authorization: Bearer <token>'."
-            ),
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return token
 
 
 def sanitize_input(value: str) -> str:
